@@ -22266,8 +22266,15 @@
       }
     }
 
-    const roomCreate = '/api'; // 1.创建会议
-    const roomJoinInfo = '/api'; // 2.加入会议
+    class RoomCore {
+        constructor(participants, localParticipant) {
+            this.participants = participants;
+            this.localParticipant = localParticipant;
+        }
+    }
+
+    const roomCreate = '/api/cloud-visual/schedule/createConference'; // 1.创建会议
+    const roomJoinInfo = '/api/cloud-visual/schedule/joinConference'; // 2.加入会议
     const mediaSwitch = '/api'; // 3.媒体开关
     const userMetadata = '/api'; // 4.自定义与会者属性
     const roomClose = '/api'; // 5.结束会议
@@ -22296,25 +22303,248 @@
         testApi,
     };
 
-    class SfuApi {
+    class MyEventEmitter {
+        constructor() {
+            this.Events = {};
+        }
+        /**
+         * 发布/ 触发
+         * @param eventName
+         * @param args
+         */
+        emit(eventName, ...args) {
+            let callbackList = this.Events[eventName] || [];
+            callbackList.forEach((fn) => fn.apply(this, args));
+            return this;
+            // 如果用js写，遍历的时候要做一下判断是否是函数，ts 用类型约束，在调用或者编译阶段会检测是否合法
+            // callbackList.map(fn=>{
+            //     if(typeof fn==="function") fn.apply(this,args)
+            // })
+        }
+        /**
+         * 订阅/监听
+         * @param eventName
+         * @param callback
+         */
+        on(eventName, callback) {
+            // if(!eventName||typeof eventName !=="string") return  ；// 因为用了ts 写，所以这句不用写了，如果是js写，建议加这判断
+            let callbackList = this.Events[eventName] || [];
+            callback && callbackList.push(callback);
+            this.Events[eventName] = callbackList;
+            return this;
+        }
+        /**
+         * 只订阅一次/监听一次：
+         * 思路：
+         * 1. 重新包装一个回调函数(有名的)，进行注册订阅/监听,
+         * 2. 包装函数里面直接调用 once方法的第二个参数回调函数，然后调用off方法 卸载该包装函数
+         * @param eventName
+         * @param callback
+         */
+        once(eventName, callback) {
+            // if(!eventName||typeof eventName !=="string") return ；
+            let decor = (...args) => {
+                callback && callback.apply(this, args);
+                this.off(eventName, decor);
+            };
+            this.on(eventName, decor);
+            return this;
+        }
+        /**
+         * 卸载/取消 某一个回调监听(不是取消eventName的所有回调监听),主要配合once一起,实例单独调用,无意义
+         * @param eventName
+         * @param callback
+         */
+        off(eventName, callback) {
+            let callbackList = this.Events[eventName] || [];
+            let resCallbacks = callbackList.filter((fn) => fn !== callback);
+            this.Events[eventName] = resCallbacks;
+            return this;
+        }
+        /**
+         * 卸载/取消 指定eventName 的所有订阅/监听
+         * @param eventName
+         * @param callback
+         */
+        remove(eventName, callback) {
+            this.Events[eventName] = [];
+            callback && callback();
+            return this;
+        }
+    }
+
+    class LocalParticipantCore {
+        constructor(identity, isSpeaking, connectionQuality, startTime, isEncrypted, joinedAt, videoTrack, isIncludeVideoElm, cameraEnabled, micEnabled, name, isLocal) {
+            this.isLocal = true;
+            this.identity = identity;
+            this.isSpeaking = isSpeaking;
+            this.connectionQuality = connectionQuality;
+            this.isIncludeVideoElm = isIncludeVideoElm;
+            this.cameraEnabled = true;
+            this.name = name;
+            this.isLocal = true;
+            this.startTime = startTime;
+            this.videoTrack = videoTrack;
+            this.micEnabled = true;
+            this.isEncrypted = isEncrypted;
+            this.joinedAt = joinedAt;
+        }
+    }
+
+    const localParticipantConvert = (participant, startTime) => {
+        var _a;
+        console.log('this.participant', participant);
+        setTimeout(() => {
+            console.log('_connectionQuality22', participant.connectionQuality);
+            console.log('cameraEnabled22', cameraPub && cameraPub.isSubscribed && !cameraPub.isMuted);
+            console.log('micEnabled22', micPub && micPub.isSubscribed && !micPub.isMuted);
+        }, 3000);
+        const identity = participant.identity;
+        const name = participant.name;
+        const isSpeaking = participant.isSpeaking;
+        const connectionQuality = participant.connectionQuality;
+        const cameraPub = participant.getTrack(Track.Source.Camera);
+        const cameraEnabled = cameraPub && cameraPub.isSubscribed && !cameraPub.isMuted;
+        const isIncludeVideoElm = (_a = cameraPub === null || cameraPub === void 0 ? void 0 : cameraPub.videoTrack) === null || _a === void 0 ? void 0 : _a.attachedElements;
+        const videoTrack = cameraPub === null || cameraPub === void 0 ? void 0 : cameraPub.videoTrack;
+        const micPub = participant.getTrack(Track.Source.Microphone);
+        const micEnabled = micPub && micPub.isSubscribed && !micPub.isMuted;
+        const isEncrypted = participant.isEncrypted;
+        const joinedAt = participant.joinedAt;
+        let participantCore = new LocalParticipantCore(identity, isSpeaking, connectionQuality, startTime, isEncrypted, joinedAt, videoTrack, isIncludeVideoElm, cameraEnabled, micEnabled, name);
+        return participantCore;
+    };
+
+    class SfuApi extends MyEventEmitter {
         // 初始化
-        constructor(ip, port) {
+        constructor(ip, port, roomOptions) {
+            super();
             this.requestPrefix = ip + ':' + port;
-            console.log(this.requestPrefix);
-            this.room = new Room({
-                // automatically manage subscribed video quality
-                adaptiveStream: true,
-                // optimize publishing bandwidth and CPU for published tracks
-                dynacast: true,
-                // default capture settings
-                videoCaptureDefaults: {
-                    resolution: VideoPresets.h720.resolution,
-                },
-            });
+            this.roomOptions = roomOptions;
+            this.room = new Room(roomOptions);
         }
         // 创建会议
-        createMeeting() {
+        createMeeting(params) {
             return __awaiter$1(this, void 0, void 0, function* () {
+                //console.log('params', params)
+                // 调用创建会议接口
+                const res = yield fetch(this.requestPrefix + constant.roomCreate, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                });
+                const data = yield res.json();
+                if (data.code === 200) {
+                    // 连接会议
+                    return this.connect(data.data.url, data.data.token);
+                }
+                return this.room;
+            });
+        }
+        // 连接会议
+        connect(url, token) {
+            return __awaiter$1(this, void 0, void 0, function* () {
+                this.startTime = Date.now();
+                // 预热连接
+                this.room.prepareConnection(url, token);
+                // 初始化监听事件
+                this.initListen();
+                // 连接
+                yield this.room.connect(url, token);
+                this.localCameraEnabled(true);
+                this.localMicrophoneEnabled(true);
+                const localParticipantCore = localParticipantConvert(this.room.localParticipant, this.startTime);
+                const rm = new RoomCore(this.room.participants, localParticipantCore);
+                return rm;
+            });
+        }
+        // 加入会议
+        joinMeeting(params) {
+            return __awaiter$1(this, void 0, void 0, function* () {
+                //console.log('params', params)
+                // 调用创建会议接口
+                const res = yield fetch(this.requestPrefix + constant.roomJoinInfo, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(params),
+                });
+                const data = yield res.json();
+                if (data.code === 200) {
+                    // 连接会议
+                    return this.connect(data.data.url, data.data.token);
+                }
+                return this.room;
+            });
+        }
+        attachVideo(element) {
+            var _a;
+            const cameraPub = this.room.localParticipant.getTrack(Track.Source.Camera);
+            (_a = cameraPub === null || cameraPub === void 0 ? void 0 : cameraPub.videoTrack) === null || _a === void 0 ? void 0 : _a.attach(element);
+        }
+        attachAudio(element) {
+            var _a;
+            const micPub = this.room.localParticipant.getTrack(Track.Source.Microphone);
+            (_a = micPub === null || micPub === void 0 ? void 0 : micPub.audioTrack) === null || _a === void 0 ? void 0 : _a.attach(element);
+        }
+        // 结束会议
+        endMeeting() { }
+        // 媒体开关
+        mediaSwitch() { }
+        // 自定义与会者属性
+        setUserMetadata() { }
+        // 设置主持人
+        setHost() { }
+        // 移除会议(踢人)
+        outOfRoom() { }
+        // 设置会议属性
+        setRoomMetadata() { }
+        // 修改名称
+        updateName() { }
+        // 设置头像
+        setUserLogo() { }
+        // 共享桌面
+        screenShare() { }
+        // 获取成员列表
+        getMemberList() { }
+        // 本地摄像头开关
+        localCameraEnabled(flag) {
+            this.room.localParticipant.setCameraEnabled(flag);
+        }
+        // 本地麦克风开关
+        localMicrophoneEnabled(flag) {
+            this.room.localParticipant.setMicrophoneEnabled(flag);
+        }
+        // 本地共享开关
+        localScreenShareEnabled(flag) {
+            this.room.localParticipant.setScreenShareEnabled(flag);
+        }
+        // 初始化监听事件
+        initListen() {
+            this.room
+                .on(RoomEvent.ParticipantConnected, () => {
+                this.handleParticipantConnected(this.room);
+            })
+                .on(RoomEvent.TrackUnsubscribed, () => { })
+                .on(RoomEvent.ActiveSpeakersChanged, () => { })
+                .on(RoomEvent.Disconnected, () => { })
+                .on(RoomEvent.LocalTrackUnpublished, () => { });
+        }
+        // --------------------------- event handlers ------------------------------- //
+        // 监听新成员加入
+        handleParticipantConnected(room) {
+            this.emit('ParticipantConnect', room.participants);
+        }
+        static fromJSON(d, ip, port) {
+            return Object.assign(new SfuApi(ip, port), d);
+        }
+        // --------------------------- JS 测试 ------------------------------- //
+        testCreateMeeting(params) {
+            return __awaiter$1(this, void 0, void 0, function* () {
+                //console.log('params', params)
                 // 调用创建会议接口
                 const res = yield fetch(this.requestPrefix + constant.testApi, {
                     method: 'POST',
@@ -22322,17 +22552,10 @@
                 const data = yield res.json();
                 if (data.code === 200) {
                     // 连接会议
-                    this.connect(data.data.url, data.data.token);
+                    return this.connect(data.data.url, data.data.token);
                 }
-                return data;
+                return this.room;
             });
-        }
-        // 连接会议
-        connect(url, token) {
-            this.room.prepareConnection(url, token);
-            console.log('prepareConnection');
-            this.room.connect(url, token);
-            console.log('room', this.room);
         }
     }
 

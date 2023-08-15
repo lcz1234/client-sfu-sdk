@@ -15,7 +15,11 @@
   <script>
     btn.onclick = function () {
       let c = new sfuClient("http://192.168.1.35", "5000")
-      const res = c.createMeeting()
+      c.on('post22', function (str) {
+        console.log(str)
+      })
+      const res = c.testCreateMeeting()
+      console.log('res', res)
     }
   </script>
 </body>

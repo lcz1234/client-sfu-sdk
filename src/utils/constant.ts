@@ -1,5 +1,5 @@
-const roomCreate = '/api' // 1.创建会议
-const roomJoinInfo = '/api' // 2.加入会议
+const roomCreate = '/api/cloud-visual/schedule/createConference' // 1.创建会议
+const roomJoinInfo = '/api/cloud-visual/schedule/joinConference' // 2.加入会议
 const mediaSwitch = '/api' // 3.媒体开关
 const userMetadata = '/api' // 4.自定义与会者属性
 const roomClose = '/api' // 5.结束会议
